@@ -1,0 +1,2215 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CNN for Visual Recognition · Clasificación de monumentos</title>
+  <meta name="description" content="Clasificador de 6 monumentos con transfer learning en PyTorch y timm: cómo funciona, por qué funciona, resultados y despliegue ONNX en CPU o Raspberry Pi.">
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-2: #eef4f8;
+      --ink: #0b1526;
+      --muted: #5b6b82;
+      --line: #d9e3ef;
+      --brand: #0f766e;
+      --brand-2: #1d4ed8;
+      --brand-soft: #e7f7f2;
+      --accent: #f59e0b;
+      --good: #047857;
+      --warn: #b45309;
+      --bad: #b91c1c;
+      --radius: 18px;
+      --shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+      --shadow-lg: 0 30px 70px rgba(15, 23, 42, 0.14);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    ::selection { background: #bbf7d0; color: #052e16; }
+    a { color: var(--brand-2); }
+    img { max-width: 100%; }
+    button { font: inherit; }
+
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -60px;
+      z-index: 999;
+      background: #fff;
+      color: var(--ink);
+      padding: 10px 14px;
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      transition: top 0.2s ease;
+    }
+    .skip-link:focus { top: 12px; }
+
+    .wrap { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
+
+    /* ---------- Header ---------- */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 60;
+      background: rgba(246, 248, 251, 0.86);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--line);
+    }
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 68px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      box-shadow: 0 8px 18px rgba(15, 118, 110, 0.28);
+    }
+    .brand small {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar { display: none; }
+    .nav a {
+      padding: 8px 10px;
+      border-radius: 999px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .nav a:hover,
+    .nav a.active { color: var(--ink); background: #e4edf7; }
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 15px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 13.5px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:focus-visible,
+    .nav a:focus-visible,
+    .copy:focus-visible,
+    #toTop:focus-visible {
+      outline: 3px solid rgba(37, 99, 235, 0.45);
+      outline-offset: 2px;
+    }
+    .btn-primary {
+      background: var(--ink);
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(11, 21, 38, 0.18);
+    }
+    .btn-ghost {
+      background: #fff;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    .btn-soft {
+      background: #e4edf7;
+      color: var(--ink);
+    }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      color: #fff;
+      background:
+        radial-gradient(circle at 16% 18%, rgba(37, 99, 235, 0.38), transparent 38%),
+        radial-gradient(circle at 82% 2%, rgba(13, 148, 136, 0.38), transparent 42%),
+        linear-gradient(135deg, #060a12 0%, #0b1728 55%, #0b2b2b 100%);
+      padding: 82px 0 72px;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+      background-size: 46px 46px;
+      mask-image: radial-gradient(circle at 60% 40%, #000 20%, transparent 78%);
+      -webkit-mask-image: radial-gradient(circle at 60% 40%, #000 20%, transparent 78%);
+      pointer-events: none;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 520px;
+      height: 520px;
+      right: -180px;
+      bottom: -280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(94, 234, 212, 0.16), transparent 65%);
+      pointer-events: none;
+    }
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1.12fr 0.88fr;
+      gap: 54px;
+      align-items: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #5eead4;
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      content: "";
+      width: 24px;
+      height: 2px;
+      border-radius: 2px;
+      background: #5eead4;
+    }
+    .hero h1 {
+      margin: 16px 0 18px;
+      font-size: clamp(38px, 5.4vw, 66px);
+      line-height: 1.02;
+      letter-spacing: -0.045em;
+      font-weight: 800;
+    }
+    .hero h1 span { color: #5eead4; }
+    .hero .lead {
+      max-width: 640px;
+      margin: 0;
+      color: #c7d6ea;
+      font-size: 17.5px;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 28px 0 30px;
+    }
+    .hero .btn-primary { background: #5eead4; color: #042f2e; box-shadow: 0 14px 30px rgba(94, 234, 212, 0.2); }
+    .hero .btn-ghost { background: rgba(255, 255, 255, 0.06); color: #fff; border-color: rgba(255, 255, 255, 0.22); }
+    .hero .btn-ghost:hover { background: rgba(255, 255, 255, 0.12); }
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      max-width: 660px;
+    }
+    .hero-metric {
+      padding: 12px 13px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.065);
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      backdrop-filter: blur(8px);
+    }
+    .hero-metric strong {
+      display: block;
+      font-size: 21px;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+    }
+    .hero-metric span { display: block; margin-top: 3px; color: #a9bbd4; font-size: 11.5px; }
+
+    .terminal {
+      position: relative;
+      background: #07101d;
+      border: 1px solid rgba(94, 234, 212, 0.24);
+      border-radius: 18px;
+      box-shadow: 0 34px 80px rgba(0, 0, 0, 0.42);
+      overflow: hidden;
+      transform: rotate(-0.8deg);
+    }
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 14px;
+      background: #0b1a2c;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .dot.red { background: #ef4444; }
+    .dot.yellow { background: #f59e0b; }
+    .dot.green { background: #22c55e; }
+    .terminal-title {
+      margin-left: 8px;
+      color: #7f93ad;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    .terminal pre {
+      margin: 0;
+      padding: 18px 18px 20px;
+      color: #d7e4f5;
+      font: 12.5px/1.7 var(--mono);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .terminal .prompt { color: #5eead4; }
+    .terminal .key { color: #93c5fd; }
+    .terminal .str { color: #86efac; }
+    .terminal .num { color: #fbbf24; }
+    .terminal .muted { color: #64748b; }
+    .terminal .caret { display: inline-block; color: #5eead4; }
+
+    /* ---------- Sections ---------- */
+    .section { padding: 78px 0; }
+    section[id] { scroll-margin-top: 84px; }
+    .section-alt {
+      background: linear-gradient(180deg, #edf4f9 0%, #f6f8fb 100%);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .section-head { max-width: 780px; margin-bottom: 34px; }
+    .kicker {
+      color: var(--brand);
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    h2 {
+      margin: 8px 0 12px;
+      font-size: clamp(29px, 3.8vw, 44px);
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+    }
+    h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -0.025em; }
+    h4 { margin: 0 0 6px; font-size: 15px; }
+    .lead-sm { margin: 0; color: var(--muted); font-size: 16.5px; }
+    .small { font-size: 13px; color: var(--muted); }
+    .muted { color: var(--muted); }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+    .stack-16 { display: grid; gap: 16px; }
+    .stack-22 { display: grid; gap: 22px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 23px;
+      box-shadow: var(--shadow);
+    }
+    .card p { margin: 0; color: var(--muted); }
+    .card p + p { margin-top: 10px; }
+    .card h3 { display: flex; align-items: center; gap: 9px; }
+
+    .icon-badge {
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      border-radius: 10px;
+      display: inline-grid;
+      place-items: center;
+      background: var(--brand-soft);
+      color: var(--brand);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .icon-badge.blue { background: #e8efff; color: var(--brand-2); }
+    .icon-badge.amber { background: #fff7e6; color: var(--warn); }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .metric {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .metric strong {
+      display: block;
+      font-size: 30px;
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+      color: var(--ink);
+    }
+    .metric span { display: block; margin-top: 5px; color: var(--muted); font-size: 12.5px; }
+    .metric strong .unit { font-size: 16px; color: var(--brand); letter-spacing: 0; }
+
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .pill::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--brand);
+    }
+    .pill.blue::before { background: var(--brand-2); }
+    .pill.amber::before { background: var(--accent); }
+    .pill.slate::before { background: #64748b; }
+
+    .callout {
+      border-left: 4px solid var(--brand);
+      background: #ecfdf5;
+      color: #064e3b;
+      padding: 14px 16px;
+      border-radius: 0 12px 12px 0;
+      font-size: 14px;
+    }
+    .callout strong { color: #052e16; }
+    .callout.info { border-color: var(--brand-2); background: #eff6ff; color: #1e3a8a; }
+    .callout.info strong { color: #172554; }
+    .callout.warn { border-color: var(--warn); background: #fffbeb; color: #78350f; }
+    .callout.warn strong { color: #451a03; }
+    .callout p { margin: 0; color: inherit; }
+    .callout p + p { margin-top: 8px; }
+
+    /* ---------- Flow ---------- */
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 18px 0 0;
+    }
+    .flow-step {
+      position: relative;
+      flex: 1 1 136px;
+      min-width: 136px;
+      padding: 14px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+      text-align: center;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }
+    .flow-step + .flow-step::before {
+      content: "→";
+      position: absolute;
+      left: -16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      font-weight: 800;
+      font-size: 14px;
+    }
+    .flow-step strong { display: block; font-size: 13px; letter-spacing: -0.01em; }
+    .flow-step span { display: block; margin-top: 5px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+    .flow-step.highlight { border-color: rgba(15, 118, 110, 0.35); background: var(--brand-soft); }
+    .flow-step.highlight strong { color: #064e3b; }
+
+    /* ---------- Timeline ---------- */
+    .timeline { position: relative; margin: 24px 0 0; padding-left: 30px; }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: linear-gradient(var(--brand), var(--brand-2));
+      border-radius: 2px;
+    }
+    .timeline-item { position: relative; padding-bottom: 22px; }
+    .timeline-item:last-child { padding-bottom: 0; }
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      left: -26px;
+      top: 6px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--brand);
+      box-shadow: 0 0 0 4px #dff7f1;
+    }
+    .timeline-item:nth-child(2)::before { background: var(--brand-2); box-shadow: 0 0 0 4px #e3ebff; }
+    .timeline-item h4 { font-size: 15px; margin: 0 0 4px; }
+    .timeline-item p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    /* ---------- Tables ---------- */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th {
+      background: #f1f6fb;
+      color: var(--muted);
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.strong { font-weight: 700; color: var(--ink); }
+    .table-note { margin: 9px 0 0; color: var(--muted); font-size: 12.5px; }
+
+    /* ---------- Figures ---------- */
+    .figure {
+      margin: 0;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .figure img { display: block; width: 100%; height: auto; border-radius: 10px; }
+    .figure figcaption { margin: 10px 4px 2px; color: var(--muted); font-size: 12.5px; }
+    .figure-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+    /* ---------- Code ---------- */
+    .code {
+      position: relative;
+      margin: 14px 0 0;
+      background: #07101d;
+      border: 1px solid #17263a;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+    }
+    .code pre {
+      margin: 0;
+      padding: 42px 18px 16px;
+      overflow-x: auto;
+      color: #d7e4f5;
+      font: 12.5px/1.7 var(--mono);
+      tab-size: 2;
+    }
+    .code .copy {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.08);
+      color: #dbeafe;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      opacity: 0.85;
+      transition: background 0.15s ease, opacity 0.15s ease;
+    }
+    .code .copy:hover { background: rgba(255, 255, 255, 0.15); opacity: 1; }
+    .code .copy.copied { background: #047857; color: #fff; border-color: #047857; }
+    code.inline {
+      font-family: var(--mono);
+      font-size: 0.9em;
+      background: #eaf1f8;
+      color: #0f3d5c;
+      padding: 2px 6px;
+      border-radius: 6px;
+      border: 1px solid #d8e5f0;
+      overflow-wrap: anywhere;
+    }
+    pre.tree {
+      margin: 14px 0 0;
+      padding: 18px;
+      background: #07101d;
+      color: #d7e4f5;
+      border: 1px solid #17263a;
+      border-radius: 14px;
+      overflow-x: auto;
+      font: 12.5px/1.7 var(--mono);
+    }
+
+    /* ---------- Lists ---------- */
+    .check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+    .check-list li { position: relative; padding-left: 27px; color: var(--muted); font-size: 14.5px; }
+    .check-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 19px;
+      height: 19px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--brand-soft);
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .check-list li strong { color: var(--ink); }
+
+    .plain-list { margin: 0; padding-left: 20px; color: var(--muted); }
+    .plain-list li { margin: 7px 0; }
+    .plain-list strong { color: var(--ink); }
+
+    /* ---------- License ---------- */
+    .license-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 22px; align-items: start; }
+    .quote {
+      margin: 0;
+      padding: 22px 24px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #0b1728, #0b2b2b);
+      color: #d8e7f7;
+      font-size: 15px;
+      border: 1px solid rgba(94, 234, 212, 0.2);
+    }
+    .quote strong { color: #5eead4; }
+    .quote p { margin: 0; }
+    .quote p + p { margin-top: 10px; }
+
+    /* ---------- Footer ---------- */
+    .site-footer {
+      background: #07101d;
+      color: #9fb2c9;
+      padding: 42px 0 30px;
+    }
+    .footer-grid { display: flex; justify-content: space-between; gap: 26px; flex-wrap: wrap; }
+    .footer-brand { color: #fff; font-weight: 800; letter-spacing: -0.02em; }
+    .footer-brand span { color: #5eead4; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    .footer-links a { color: #c7d6ea; text-decoration: none; font-size: 13px; }
+    .footer-links a:hover { color: #5eead4; }
+    .footer-bottom {
+      margin-top: 26px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #7f93ad;
+    }
+
+    #toTop {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 70;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: var(--shadow-lg);
+      cursor: pointer;
+      font-size: 18px;
+      display: grid;
+      place-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(10px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    #toTop.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 1020px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 34px; }
+      .hero { padding: 66px 0 56px; }
+      .terminal { max-width: 620px; transform: none; }
+      .grid-4, .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .license-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 900px) {
+      .header-inner { flex-wrap: wrap; padding: 10px 0 8px; }
+      .nav { order: 3; width: 100%; padding-bottom: 4px; }
+      .header-actions { margin-left: auto; }
+      .hero-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .figure-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .wrap { width: min(100% - 28px, 1180px); }
+      .section { padding: 58px 0; }
+      .grid-2, .grid-3, .grid-4, .metric-grid { grid-template-columns: 1fr; }
+      .flow { flex-direction: column; }
+      .flow-step + .flow-step::before {
+        content: "↓";
+        left: 50%;
+        top: -17px;
+        transform: translateX(-50%);
+      }
+      .hero h1 { font-size: clamp(34px, 9vw, 48px); }
+      .hero-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .header-actions .btn { padding: 9px 11px; }
+      .figure { padding: 10px; }
+    }
+    @media (max-width: 420px) {
+      .hero-metrics { grid-template-columns: 1fr 1fr; }
+      .btn { padding: 9px 12px; font-size: 12.5px; }
+    }
+
+    /* ---------- Print ---------- */
+    @media print {
+      .site-header, .hero-actions, #toTop, .copy, .header-actions { display: none !important; }
+      body { background: #fff; color: #000; }
+      .hero { background: #fff !important; color: #000; padding: 20px 0; }
+      .hero::before, .hero::after { display: none; }
+      .hero h1 span, .eyebrow { color: #0f766e; }
+      .hero .lead, .hero-metric span { color: #333; }
+      .hero-metric { background: #f3f4f6; border-color: #ddd; }
+      .hero-metric strong { color: #000; }
+      .terminal { box-shadow: none; border-color: #ccc; }
+      .section, .section-alt { padding: 24px 0; background: #fff; border: 0; }
+      .card, .figure, .metric, .table-wrap { box-shadow: none; break-inside: avoid; }
+      a { color: #000; text-decoration: underline; }
+      .code, pre.tree { background: #f6f8fa; color: #111; border-color: #ddd; }
+      .code .copy { display: none; }
+      .terminal { background: #fff !important; color: #111 !important; border-color: #ccc !important; }
+      .terminal pre,
+      .terminal .prompt,
+      .terminal .key,
+      .terminal .str,
+      .terminal .num,
+      .terminal .muted,
+      .terminal .caret { color: #111 !important; }
+      .terminal-bar { background: #f1f5f9; border-color: #ddd; }
+      .terminal-title { color: #555; }
+      .quote { background: #f3f4f6; color: #111; border-color: #ddd; }
+      .quote strong { color: #0f766e; }
+      .site-footer { background: #fff; color: #111; border-top: 1px solid #ddd; }
+      .footer-brand, .footer-brand span, .footer-links a, .footer-bottom { color: #111; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
+
+    /* =========================================================
+       Tema claro de portfolio (inspirado en la referencia)
+       ========================================================= */
+    :root {
+      --bg: #f7f9f4;
+      --surface: #ffffff;
+      --surface-2: #eef3ed;
+      --ink: #102018;
+      --muted: #53675b;
+      --line: rgba(16, 38, 25, 0.12);
+      --brand: #2f6b45;
+      --brand-2: #17452e;
+      --brand-soft: rgba(47, 107, 69, 0.09);
+      --accent: #2f6b45;
+      --lime: #c9ef5a;
+      --lime-soft: rgba(150, 190, 60, 0.16);
+      --good: #2f6b45;
+      --warn: #9a5a1c;
+      --bad: #b23a3a;
+      --shadow: 0 12px 34px rgba(16, 38, 25, 0.07);
+      --shadow-lg: 0 30px 70px rgba(16, 38, 25, 0.12);
+    }
+    body { background: var(--bg); color: var(--ink); }
+    .site-header {
+      background: rgba(247, 249, 244, 0.9);
+      border-bottom-color: var(--line);
+    }
+    .brand-mark {
+      background: linear-gradient(135deg, #2f6b45, #17452e);
+      box-shadow: 0 8px 18px rgba(47, 107, 69, 0.22);
+    }
+    .brand small { color: var(--muted); }
+    .nav a { color: var(--muted); }
+    .nav a:hover,
+    .nav a.active { color: var(--accent-strong); background: var(--lime-soft); }
+    .btn-primary {
+      background: var(--lime);
+      color: #112015;
+      border-color: #b5d94b;
+      box-shadow: 0 10px 25px rgba(80, 120, 30, 0.12);
+    }
+    .btn-primary:hover { background: #d7f57a; color: #112015; }
+    .btn-ghost { background: #fff; color: var(--ink); border-color: rgba(16, 38, 25, 0.22); }
+    .btn-ghost:hover { background: #f0f6ea; border-color: rgba(47, 107, 69, 0.45); }
+    .btn-soft { background: var(--lime-soft); color: var(--accent-strong); }
+
+    .hero {
+      background:
+        radial-gradient(circle at 14% 16%, rgba(201, 239, 90, 0.22), transparent 38%),
+        radial-gradient(circle at 84% 8%, rgba(47, 107, 69, 0.13), transparent 42%),
+        linear-gradient(135deg, #f7f9f4 0%, #eef3ed 58%, #e7f0e5 100%);
+      color: var(--ink);
+    }
+    .hero::before {
+      background-image:
+        linear-gradient(rgba(16, 38, 25, 0.10) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16, 38, 25, 0.10) 1px, transparent 1px);
+      opacity: 0.35;
+    }
+    .hero::after {
+      background: radial-gradient(circle, rgba(47, 107, 69, 0.12), transparent 65%);
+    }
+    .eyebrow { color: var(--accent); }
+    .eyebrow::before { background: var(--accent); }
+    .hero h1 { color: var(--ink); }
+    .hero h1 span { color: var(--accent); }
+    .hero .lead { color: var(--muted); }
+    .hero .btn-primary { background: var(--lime); color: #112015; box-shadow: 0 14px 30px rgba(80, 120, 30, 0.14); }
+    .hero .btn-ghost { background: #fff; color: var(--ink); border-color: rgba(16, 38, 25, 0.22); }
+    .hero .btn-ghost:hover { background: #f0f6ea; }
+    .hero-metric {
+      background: rgba(255, 255, 255, 0.75);
+      border-color: var(--line);
+      backdrop-filter: blur(8px);
+    }
+    .hero-metric strong { color: var(--ink); }
+    .hero-metric span { color: var(--muted); }
+    .terminal { border-color: rgba(47, 107, 69, 0.35); box-shadow: 0 34px 80px rgba(16, 38, 25, 0.25); }
+    .terminal-bar { background: #102018; }
+    .terminal-title { color: #9aacbf; }
+    .terminal pre { color: #d7e4f5; }
+    .section-alt {
+      background: linear-gradient(180deg, #eef3ed 0%, #f7f9f4 100%);
+      border-color: var(--line);
+    }
+    .kicker { color: var(--accent); }
+    .card, .metric, .figure, .table-wrap { border-color: var(--line); }
+    .card, .metric, .figure { background: #fff; }
+    .icon-badge { background: var(--brand-soft); color: var(--accent); }
+    .icon-badge.blue { background: rgba(25, 123, 140, 0.10); color: #197b8c; }
+    .icon-badge.amber { background: #fff7e6; color: var(--warn); }
+    .pill { border-color: var(--line); background: #fff; }
+    .pill::before { background: var(--accent); }
+    .pill.blue::before { background: #197b8c; }
+    .pill.amber::before { background: #9a5a1c; }
+    .callout { background: rgba(47, 107, 69, 0.08); color: #17452e; }
+    .callout.info { background: rgba(25, 123, 140, 0.08); color: #0e4f5c; }
+    .callout.warn { background: #fff8e8; color: #6b3f12; }
+    .flow-step { border-color: var(--line); background: #fff; }
+    .flow-step.highlight { border-color: rgba(47, 107, 69, 0.35); background: var(--brand-soft); }
+    .timeline::before { background: linear-gradient(var(--accent), #8fbf3f); }
+    .timeline-item::before { background: var(--accent); box-shadow: 0 0 0 4px var(--brand-soft); }
+    .timeline-item:nth-child(2)::before { background: #8fbf3f; box-shadow: 0 0 0 4px var(--lime-soft); }
+    th { background: #eef3ed; color: var(--muted); }
+    .table-wrap { background: #fff; }
+    .quote {
+      background: linear-gradient(135deg, #102018, #17452e);
+      border-color: rgba(201, 239, 90, 0.22);
+      color: #e7f0e5;
+    }
+    .quote strong { color: var(--lime); }
+    .site-footer { background: #102018; }
+    .footer-brand span { color: var(--lime); }
+    .footer-links a:hover { color: var(--lime); }
+    .footer-links a { color: #c7d6ea; }
+    .footer-brand { color: #fff; }
+    .footer-bottom { color: #9aacbf; }
+    .code { border-color: #1d3328; }
+    .code pre { color: #e7f0e5; }
+    .code .copy { color: #e7f0e5; }
+    code.inline { background: #eef3ed; color: #17452e; border-color: #d9e5d5; }
+    pre.tree { color: #e7f0e5; border-color: #1d3328; }
+    #toTop { background: #fff; color: var(--ink); border-color: var(--line); }
+    ::selection { background: var(--lime); color: #102018; }
+
+    /* =========================================================
+       Contacto WhatsApp
+       ========================================================= */
+    .wa-float {
+      position: fixed;
+      right: 20px;
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      z-index: 90;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #25d366;
+      color: #fff;
+      box-shadow: 0 12px 30px rgba(37, 211, 102, 0.35);
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .wa-float:hover { transform: translateY(-2px); box-shadow: 0 16px 36px rgba(37, 211, 102, 0.42); }
+    .wa-float svg { width: 29px; height: 29px; fill: currentColor; }
+
+    .wa-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(8, 25, 16, 0.56);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+    }
+    .wa-modal.is-open { opacity: 1; visibility: visible; }
+    .wa-dialog {
+      position: relative;
+      width: 100%;
+      max-width: 440px;
+      max-height: calc(100dvh - 32px);
+      overflow: auto;
+      box-sizing: border-box;
+      padding: 28px 24px 22px;
+      border-radius: 20px;
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      box-shadow: 0 30px 80px rgba(8, 25, 16, 0.28);
+      transform: translateY(18px);
+      transition: transform 0.2s ease;
+    }
+    .wa-modal.is-open .wa-dialog { transform: translateY(0); }
+    .wa-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: #f7f9f4;
+      color: var(--ink);
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .wa-close:hover { background: #eef3ed; }
+    .wa-dialog h3 {
+      margin: 0 40px 8px 0;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+      color: var(--ink);
+    }
+    .wa-dialog p { margin: 0 0 12px; color: var(--muted); font-size: 14.5px; }
+    .wa-dialog .wa-qr {
+      display: block;
+      width: 220px;
+      max-width: 100%;
+      height: auto;
+      margin: 8px auto 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .wa-dialog .wa-note {
+      text-align: center;
+      font-size: 12.5px;
+      color: var(--muted);
+      margin: 0 0 14px;
+    }
+    .wa-dialog .btn { width: 100%; }
+    .wa-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 15px;
+      border-radius: 999px;
+      background: #25d366;
+      color: #fff;
+      font-size: 13.5px;
+      font-weight: 700;
+      text-decoration: none;
+      border: 1px solid #1fbe5a;
+      cursor: pointer;
+    }
+    .wa-inline:hover { background: #1fbe5a; }
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 22px;
+      align-items: start;
+    }
+    .contact-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .contact-card h3 { margin-bottom: 8px; }
+    .contact-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .qr-card {
+      display: grid;
+      place-items: center;
+      gap: 10px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .qr-card img { width: 220px; max-width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); }
+    .qr-card p { margin: 0; color: var(--muted); font-size: 12.5px; text-align: center; }
+
+    body.wa-open { overflow: hidden; }
+
+    @media (min-width: 640px) {
+      .wa-modal { align-items: center; }
+    }
+    @media (max-width: 720px) {
+      .contact-grid { grid-template-columns: 1fr; }
+      .wa-float { width: 52px; height: 52px; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+      .wa-float svg { width: 27px; height: 27px; }
+    }
+    @media (max-width: 420px) {
+      .wa-dialog { padding: 24px 18px 18px; }
+      .wa-dialog h3 { font-size: 20px; }
+      .wa-dialog .wa-qr { width: 190px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .wa-float, .wa-modal, .wa-dialog { transition: none; }
+    }
+    @media print {
+      .wa-float, .wa-modal { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#inicio" aria-label="CNN for Visual Recognition, inicio">
+        <span class="brand-mark" aria-hidden="true">CNN</span>
+        <span>
+          CNN for Visual Recognition
+          <small>Landmark classifier · P3</small>
+        </span>
+      </a>
+
+      <nav class="nav" aria-label="Secciones">
+        <a href="#que-hace">Qué hace</a>
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#por-que">Por qué</a>
+        <a href="#resultados">Resultados</a>
+        <a href="#aplicar">Aplicar</a>
+        <a href="#deploy">Deploy</a>
+        <a href="#contacto">Contacto</a>
+        <a href="#licencia">Licencia</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="btn btn-ghost" id="printBtn" type="button" title="Imprimir o guardar como PDF">
+          <span aria-hidden="true">⎙</span><span>PDF</span>
+        </button>
+        <a class="btn btn-ghost" href="#como-funciona">Documentación</a>
+        <a class="btn btn-primary" href="https://wa.me/qr/PXTMUZ4FCBSRP1" target="_blank" rel="noopener">
+          WhatsApp <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="contenido">
+    <!-- HERO -->
+    <section class="hero" id="inicio">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="eyebrow">P3 · Computer Vision · EINA · Universidad de Zaragoza</div>
+          <h1>Que una foto sepa <span>qué monumento</span> está mirando.</h1>
+          <p class="lead">
+            Clasificador de imágenes con <strong>PyTorch + timm</strong>: distingue 6 monumentos
+            del mundo, devuelve la etiqueta y la confianza, y se exporta a <strong>ONNX</strong>
+            para ejecutarse en CPU o Raspberry Pi. Entrenado con transfer learning en dos fases
+            y evaluado sobre un test deliberadamente difícil.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#como-funciona">Ver cómo funciona <span aria-hidden="true">↓</span></a>
+            <a class="btn btn-ghost" href="#resultados">Resultados</a>
+            <a class="btn btn-ghost" href="#deploy">Deploy ONNX</a>
+            <a class="btn btn-ghost" href="#contacto">Contacto</a>
+          </div>
+          <div class="hero-metrics" aria-label="Métricas principales">
+            <div class="hero-metric">
+              <strong>95,8%</strong>
+              <span>accuracy en test</span>
+            </div>
+            <div class="hero-metric">
+              <strong>91/95</strong>
+              <span>imágenes correctas</span>
+            </div>
+            <div class="hero-metric">
+              <strong>6</strong>
+              <span>clases de monumentos</span>
+            </div>
+            <div class="hero-metric">
+              <strong>17 MB</strong>
+              <span>checkpoint del proyecto</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="terminal" aria-label="Ejemplo de salida del clasificador">
+          <div class="terminal-bar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">landmark_classifier.predict</span>
+          </div>
+          <pre><span class="prompt">$</span> python -m landmark_classifier.predict \
+    --checkpoint best.pt --input foto.jpg
+
+<span class="muted"># salida (ejemplo)</span>
+{
+  <span class="key">"prediction"</span>: <span class="str">"Eiffel_Tower"</span>,
+  <span class="key">"confidence"</span>: <span class="num">0.9942</span>,
+  <span class="key">"top_3"</span>: [
+    [<span class="str">"Eiffel_Tower"</span>, <span class="num">0.9942</span>],
+    [<span class="str">"Tokio_Tower"</span>, <span class="num">0.0031</span>],
+    [<span class="str">"Great_Wall"</span>, <span class="num">0.0012</span>]
+  ]
+}
+<span class="caret">▌</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUÉ HACE -->
+    <section class="section" id="que-hace">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">01 · Qué hace</div>
+          <h2>Una imagen entra, una etiqueta sale.</h2>
+          <p class="lead-sm">
+            El modelo recibe una foto RGB y la clasifica en una de seis clases. No dibuja cajas
+            ni detecta objetos: asume que el monumento es el sujeto principal de la imagen.
+            Es un clasificador cerrado, así que siempre devuelve una de las seis clases.
+          </p>
+        </div>
+
+        <div class="grid-2">
+          <div class="stack-22">
+            <div class="card">
+              <h3><span class="icon-badge" aria-hidden="true">01</span> Las seis clases</h3>
+              <div class="pill-row">
+                <span class="pill">Brooklyn Bridge</span>
+                <span class="pill blue">Eiffel Tower</span>
+                <span class="pill">Golden Gate</span>
+                <span class="pill amber">Great Wall</span>
+                <span class="pill blue">Sagrada Família</span>
+                <span class="pill">Tokyo Tower</span>
+              </div>
+              <p class="small" style="margin-top:12px">
+                En el dataset las carpetas conservan el nombre original:
+                <code class="inline">Brooklyn_Bridge</code>, <code class="inline">Eiffel_Tower</code>,
+                <code class="inline">Golden_Gate</code>, <code class="inline">Great_Wall</code>,
+                <code class="inline">Sagrada_Familia</code> y <code class="inline">Tokio_Tower</code>.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="icon-badge blue" aria-hidden="true">02</span> Salida del modelo</h3>
+              <p>
+                El modelo devuelve <strong>logits</strong> (6 números sin normalizar). En inferencia
+                se aplica <strong>softmax</strong> para obtener probabilidades y se muestra la clase
+                con mayor probabilidad junto con el top-k. El checkpoint guarda las clases, el tamaño
+                de entrada y las estadísticas de normalización, así que predecir no requiere el
+                script de entrenamiento.
+              </p>
+            </div>
+          </div>
+
+          <div class="stack-22">
+            <div class="callout info">
+              <p><strong>No es un detector.</strong> No localiza el monumento dentro de la imagen ni
+              devuelve bounding boxes. Si la foto contiene varias cosas, el modelo clasifica la
+              escena completa.</p>
+            </div>
+            <div class="callout">
+              <p><strong>Es un módulo de percepción.</strong> Puede ser la pieza que llama una app
+              o un sistema mayor (por ejemplo, un robot o un asistente turístico) para saber qué
+              monumento está viendo. El proyecto no incluye control de robot ni simulación.</p>
+            </div>
+            <div class="card">
+              <h3><span class="icon-badge amber" aria-hidden="true">03</span> Confianza, no certeza</h3>
+              <p>
+                Un 99% de softmax no significa un 99% de acierto garantizado. La confianza no está
+                calibrada y el modelo no tiene una clase “no es un monumento”: si le das una foto
+                de una persona, elegirá una de las seis clases.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CÓMO FUNCIONA -->
+    <section class="section section-alt" id="como-funciona">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">02 · Cómo funciona</div>
+          <h2>Del píxel a la probabilidad, paso a paso.</h2>
+          <p class="lead-sm">
+            El pipeline es deliberadamente sencillo: un backbone preentrenado, una cabeza lineal
+            nueva y un preprocesado que coincide exactamente con el que vio el backbone durante
+            el entrenamiento.
+          </p>
+        </div>
+
+        <div class="flow" aria-label="Pipeline de inferencia">
+          <div class="flow-step">
+            <strong>Imagen</strong>
+            <span>RGB, cámara o archivo</span>
+          </div>
+          <div class="flow-step">
+            <strong>Preprocesado</strong>
+            <span>resize 256 · center crop 224 · normalizar</span>
+          </div>
+          <div class="flow-step highlight">
+            <strong>MobileNetV3</strong>
+            <span>backbone ImageNet-1k · 1.280 features</span>
+          </div>
+          <div class="flow-step">
+            <strong>Linear 6</strong>
+            <span>cabeza nueva · logits</span>
+          </div>
+          <div class="flow-step">
+            <strong>Softmax</strong>
+            <span>etiqueta + confianza</span>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:28px">
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">1</span> Preprocesado</h3>
+            <p>
+              Se convierte la imagen a RGB, se redimensiona el lado corto a 256 px, se recorta
+              el centro a 224 × 224 y se normaliza con la media y la desviación típica del
+              backbone. Esos valores no están escritos a mano: salen de
+              <code class="inline">timm.data.resolve_model_data_config</code>.
+            </p>
+            <div class="code">
+              <pre><code>transform = transforms.Compose([
+    transforms.Lambda(lambda im: im.convert("RGB")),
+    transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+    transforms.CenterCrop((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean, std),
+])</code></pre>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">2</span> Backbone + cabeza</h3>
+            <p>
+              <code class="inline">timm.create_model(..., num_classes=0)</code> elimina la cabeza
+              ImageNet y devuelve el vector de características. La cabeza nueva es una sola capa
+              lineal de 1.280 → 6. El backbone aporta el conocimiento visual; la capa lineal
+              aprende a nombrar los seis monumentos.
+            </p>
+            <div class="code">
+              <pre><code>class LandmarkClassifier(nn.Module):
+    def __init__(self, model_name, num_classes):
+        super().__init__()
+        # num_classes=0: el backbone devuelve features, no logits de ImageNet
+        self.backbone = timm.create_model(
+            model_name, pretrained=True, num_classes=0
+        )
+        # El código real sondea la salida (1.280) y crea la capa
+        self.classifier = nn.Linear(1280, num_classes)
+
+    def forward(self, x):
+        return self.classifier(self.backbone(x))</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:18px">
+          <div class="card">
+            <h3><span class="icon-badge amber" aria-hidden="true">3</span> Entrenamiento en dos fases</h3>
+            <div class="timeline">
+              <div class="timeline-item">
+                <h4>Fase 1 · solo la cabeza</h4>
+                <p>Backbone congelado. 8 epochs, Adam, <code class="inline">lr=1e-3</code>.
+                La cabeza encuentra una frontera útil sobre las features de ImageNet.</p>
+              </div>
+              <div class="timeline-item">
+                <h4>Fase 2 · ajuste fino parcial</h4>
+                <p>Se restauran los mejores pesos de la fase 1, se descongelan los dos últimos
+                bloques del backbone y se entrena con <code class="inline">lr=1e-4</code> durante
+                5 epochs. El learning rate es 10× menor para no destruir las features.</p>
+              </div>
+            </div>
+            <p class="small" style="margin-top:10px">Batch 64 · CrossEntropyLoss · Adam · imágenes aumentadas.</p>
+          </div>
+
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">4</span> Un detalle que importa</h3>
+            <p>
+              En MobileNetV3, <code class="inline">timm</code> expone
+              <code class="inline">num_features = 960</code>, pero la salida real de
+              <code class="inline">conv_head</code> es de <strong>1.280</strong> dimensiones.
+              Si se confía ciegamente en <code class="inline">num_features</code>, la cabeza
+              se crea con el tamaño equivocado y el checkpoint no carga.
+            </p>
+            <p>
+              El código hace un forward de prueba en modo <code class="inline">eval()</code>
+              (sin actualizar las estadísticas de BatchNorm) y usa la dimensión real. Es una de
+              las correcciones que hace que el modelo sea robusto al cambiar de backbone.
+            </p>
+            <div class="callout warn" style="margin-top:14px">
+              <p><strong>Por eso el checkpoint funciona:</strong> la cabeza es 6 × 1.280 y coincide
+              exactamente con el estado guardado. La carga estricta no reporta claves faltantes
+              ni inesperadas.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- POR QUÉ -->
+    <section class="section" id="por-que">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">03 · Por qué funciona</div>
+          <h2>Las decisiones que hacen que 3.040 imágenes basten.</h2>
+          <p class="lead-sm">
+            Entrenar una CNN desde cero con ~3.000 imágenes habría sido una receta para el
+            sobreajuste. El proyecto aprovecha un backbone preentrenado y adapta solo lo necesario.
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">A</span> Transfer learning</h3>
+            <p>ImageNet aporta bordes, texturas, formas y patrones visuales. Solo se aprende la
+            parte nueva: mapear esas features a seis monumentos. Con pocos datos, esto es mucho
+            más eficiente que empezar de cero.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">B</span> Dos fases, no una</h3>
+            <p>Primero se adapta la cabeza sin tocar el backbone. Después se ajustan solo los
+            últimos bloques, que son los más específicos de la tarea. Así se evita el
+            <em>catastrophic forgetting</em>.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge amber" aria-hidden="true">C</span> Data augmentation</h3>
+            <p>Random resized crop, flip horizontal y color jitter suave. El modelo ve recortes,
+            escalas, iluminaciones y filtros parecidos a los de fotos reales, sin cambiar la
+            identidad del monumento.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">D</span> Split estratificado</h3>
+            <p>La validación se crea dentro de <code class="inline">data/train</code> con 75/25
+            estratificado. Cada clase está representada en train y validación, y el test queda
+            separado hasta la evaluación final.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">E</span> BatchNorm congelado</h3>
+            <p>Si un bloque está congelado, sus estadísticas de BatchNorm también deben quedarse
+            quietas. El training loop pone esas capas en <code class="inline">eval()</code> después
+            de <code class="inline">model.train()</code>.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge amber" aria-hidden="true">F</span> Preprocesado correcto</h3>
+            <p>Media, desviación y tamaño de entrada se leen del backbone. Un cambio de modelo no
+            rompe silenciosamente la accuracy por usar una normalización que no toca.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">G</span> Checkpoint por validación</h3>
+            <p>Se guarda el mejor estado por <code class="inline">val_loss</code> a lo largo de las
+            dos fases, no el último epoch. El test se toca una sola vez, al final.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">H</span> Sin softmax en el modelo</h3>
+            <p><code class="inline">CrossEntropyLoss</code> espera logits. El softmax se aplica solo
+            al predecir. Evita el error clásico de aplicarlo dos veces y mejora la estabilidad
+            numérica.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge amber" aria-hidden="true">I</span> Un test difícil a propósito</h3>
+            <p>El test son capturas estilo Instagram: personas, texto, filtros, recortes y ángulos
+            raros. Esa diferencia con el train es la que hace que el 95,8% sea una medida exigente,
+            no un número inflado.</p>
+          </div>
+        </div>
+
+        <div class="callout info" style="margin-top:22px">
+          <p><strong>La idea en una frase:</strong> no se entrena “una CNN para monumentos” desde
+          cero; se adapta un extractor de features muy bueno a un problema pequeño, con una
+          cabeza nueva y un ajuste fino controlado.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTADOS -->
+    <section class="section section-alt" id="resultados">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">04 · Resultados</div>
+          <h2>95,8% en un test de 95 imágenes.</h2>
+          <p class="lead-sm">
+            El checkpoint del proyecto se evaluó de nuevo sobre el test de 95 capturas. Estos son
+            los números que puedes reproducir con <code class="inline">best.pt</code>, no una
+            captura de una ejecución anterior.
+          </p>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric"><strong>91<span class="unit">/95</span></strong><span>imágenes correctas</span></div>
+          <div class="metric"><strong>95,8<span class="unit">%</span></strong><span>accuracy</span></div>
+          <div class="metric"><strong>94,9<span class="unit">%</span></strong><span>macro recall</span></div>
+          <div class="metric"><strong>95,2<span class="unit">%</span></strong><span>macro F1</span></div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:22px">
+          <table>
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th class="num">Aciertos</th>
+                <th class="num">Accuracy</th>
+                <th class="num">Macro recall</th>
+                <th class="num">Macro F1</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="strong">MobileNetV3-Large 100 <span class="small">(checkpoint del proyecto)</span></td>
+                <td class="num">91/95</td>
+                <td class="num"><strong>95,8%</strong></td>
+                <td class="num"><strong>94,9%</strong></td>
+                <td class="num">95,2%</td>
+              </tr>
+              <tr>
+                <td>EfficientNet-Lite0 <span class="small">(ejecución registrada)</span></td>
+                <td class="num">90/95</td>
+                <td class="num">94,7%</td>
+                <td class="num">93,5%</td>
+                <td class="num">94,1%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">
+          MobileNetV3 se reevaluó desde el checkpoint del proyecto. EfficientNet-Lite0 es la ejecución
+          registrada del proyecto; su checkpoint no se distribuye. Ambos usan el mismo test de 95
+          imágenes.
+        </p>
+
+        <div class="grid-2" style="margin-top:26px">
+          <figure class="figure">
+            <img src="assets/confusion_matrix_mobilenetv3.png"
+                 alt="Matriz de confusión de MobileNetV3-Large: 16 Brooklyn, 22 Eiffel, 12 Golden Gate, 17 Great Wall, 15 Sagrada Família y 9 Tokyo Tower correctas."
+                 loading="lazy">
+            <figcaption>
+              Matriz de confusión de MobileNetV3-Large. Filas: etiqueta real. Columnas: predicción.
+              La diagonal son los aciertos.
+            </figcaption>
+          </figure>
+          <figure class="figure">
+            <img src="assets/per_class_recall.png"
+                 alt="Gráfico de recall por clase para MobileNetV3-Large y EfficientNet-Lite0."
+                 loading="lazy">
+            <figcaption>
+              Recall por clase. Las cuatro clases centrales son perfectas; Tokyo Tower es la más
+              difícil (9/12 en MobileNetV3, 8/12 en EfficientNet).
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="grid-2" style="margin-top:18px">
+          <figure class="figure">
+            <img src="assets/training_loss.png" alt="Curvas de loss de entrenamiento y validación." loading="lazy">
+            <figcaption>Loss de train y validación. La línea discontinua marca el cambio de fase.</figcaption>
+          </figure>
+          <figure class="figure">
+            <img src="assets/training_accuracy.png" alt="Curvas de accuracy de entrenamiento y validación." loading="lazy">
+            <figcaption>Accuracy de train y validación. La validación termina alrededor del 96,7%.</figcaption>
+          </figure>
+        </div>
+
+        <div class="grid-2" style="margin-top:24px">
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">✓</span> Lectura rápida</h3>
+            <ul class="check-list">
+              <li><strong>Cuatro clases perfectas:</strong> Eiffel Tower, Golden Gate, Great Wall y Sagrada Família.</li>
+              <li><strong>Brooklyn Bridge:</strong> 16/17; el único error se va a Eiffel Tower.</li>
+              <li><strong>Tokyo Tower:</strong> 9/12; se confunde con Brooklyn, Eiffel y Golden Gate.</li>
+              <li><strong>El patrón tiene sentido:</strong> torres de celosía y puentes con torres de acero comparten silueta, sobre todo de noche o con recortes.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">!</span> Cómo leer estos números</h3>
+            <p>
+              El test tiene solo 95 imágenes: <strong>un error cambia la accuracy en 1,05 puntos</strong>.
+              El 95,8% es una estimación, no una garantía. Un intervalo aproximado del 95% ronda
+              ±4–5 puntos porcentuales. Y el modelo es de mundo cerrado: siempre elige una de las
+              seis clases.
+            </p>
+            <div class="callout warn" style="margin-top:14px">
+              <p><strong>Honestidad de resultados:</strong> el proyecto tuvo varias ejecuciones.
+              La presentación original reportaba 93,6% para un run anterior de MobileNetV3; el
+              checkpoint del proyecto, reevaluado, da 95,8%. Son runs distintos y el test es pequeño.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- APLICAR -->
+    <section class="section" id="aplicar">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">05 · Cómo aplicarlo</div>
+          <h2>De cero a una predicción en cuatro pasos.</h2>
+          <p class="lead-sm">
+            El proyecto incluye el código, el checkpoint y los comandos. El código se comparte
+            bajo solicitud; si ya lo tienes, solo necesitas Python
+            3.10+ y las dependencias; para entrenar, una GPU ayuda pero no es obligatoria.
+          </p>
+        </div>
+
+        <div class="grid-4">
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">1</span> Instala</h3>
+            <p>Solicita el código, crea un entorno e instala las dependencias. Para CUDA, usa el wheel de
+            PyTorch que corresponda a tu driver.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">2</span> Prepara los datos</h3>
+            <p><code class="inline">data/train/&lt;clase&gt;/*.jpg</code> y
+            <code class="inline">data/test/&lt;clase&gt;/*.jpg</code>. El dataset no se incluye;
+            el checkpoint se comparte con el código.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge amber" aria-hidden="true">3</span> Evalúa o predice</h3>
+            <p>Con <code class="inline">best.pt</code> puedes evaluar el test o clasificar una
+            foto sin entrenar nada.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">4</span> Entrena o exporta</h3>
+            <p>Reentrena con tus clases o exporta a ONNX para CPU / Raspberry Pi.</p>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:24px">
+          <div class="card">
+            <h3>Instalación</h3>
+            <div class="code">
+              <pre><code># El código se comparte bajo solicitud (contacto WhatsApp).
+# Si ya lo tienes, desde la carpeta del proyecto:
+
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux / macOS
+source .venv/bin/activate
+
+pip install -r requirements.txt
+# opcional: consola y paquete instalable
+pip install -e . --no-deps</code></pre>
+            </div>
+            <p class="small" style="margin-top:10px">
+              Para CUDA: instala primero el build de PyTorch de
+              <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener">pytorch.org</a>
+              y luego el resto de requisitos.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Estructura de datos</h3>
+            <p>Una carpeta por clase, con el mismo nombre en train y test:</p>
+            <pre class="tree">data/
+├── train/
+│   ├── Brooklyn_Bridge/
+│   ├── Eiffel_Tower/
+│   ├── Golden_Gate/
+│   ├── Great_Wall/
+│   ├── Sagrada_Familia/
+│   └── Tokio_Tower/
+└── test/
+    ├── Brooklyn_Bridge/
+    ├── Eiffel_Tower/
+    ├── Golden_Gate/
+    ├── Great_Wall/
+    ├── Sagrada_Familia/
+    └── Tokio_Tower/</pre>
+            <p class="small" style="margin-top:10px">
+              La validación se crea dentro de <code class="inline">data/train</code> (75/25
+              estratificado); no crees una carpeta <code class="inline">val/</code>.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:18px">
+          <div class="card">
+            <h3>Evaluar y predecir con el checkpoint</h3>
+            <div class="code">
+              <pre><code># métricas sobre data/test
+python -m landmark_classifier.evaluate \
+  --checkpoint best.pt \
+  --data-dir data
+
+# una imagen
+python -m landmark_classifier.predict \
+  --checkpoint best.pt \
+  --input foto.jpg \
+  --topk 3
+
+# una carpeta + grid visual
+python -m landmark_classifier.predict \
+  --checkpoint best.pt \
+  --input data/test \
+  --labels-from-folders \
+  --save-grid predicciones.png</code></pre>
+            </div>
+            <p class="small" style="margin-top:10px">
+              No hace falta entrenar para probar el modelo: <code class="inline">best.pt</code>
+              (17 MB) se comparte junto con el código.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Entrenar desde cero</h3>
+            <div class="code">
+              <pre><code>python -m landmark_classifier.train \
+  --data-dir data \
+  --output-dir runs/mobilenetv3_large100
+
+# comparar otro backbone
+python -m landmark_classifier.train \
+  --model tf_efficientnet_lite0.in1k \
+  --data-dir data \
+  --output-dir runs/efficientnet_lite0</code></pre>
+            </div>
+            <p class="small" style="margin-top:10px">
+              Opciones útiles: <code class="inline">--epochs-head 8</code>,
+              <code class="inline">--epochs-finetune 5</code>,
+              <code class="inline">--lr-head 1e-3</code>,
+              <code class="inline">--lr-finetune 1e-4</code>,
+              <code class="inline">--batch-size 64</code>,
+              <code class="inline">--unfreeze-blocks 2</code>,
+              <code class="inline">--device cuda</code>.
+            </p>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:22px">
+          <table>
+            <thead>
+              <tr><th>Salida del entrenamiento</th><th>Contenido</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code class="inline">best.pt</code></td><td>Pesos + clases + preprocesado + configuración</td></tr>
+              <tr><td><code class="inline">history.json</code></td><td>Loss y accuracy por epoch</td></tr>
+              <tr><td><code class="inline">test_metrics.json</code></td><td>Accuracy, macro F1, métricas por clase y matriz</td></tr>
+              <tr><td><code class="inline">test_predictions.csv</code></td><td>Una fila por imagen del test</td></tr>
+              <tr><td><code class="inline">training_curves.png</code></td><td>Curvas con la frontera entre fases</td></tr>
+              <tr><td><code class="inline">test_confusion_matrix.png</code></td><td>Matriz de confusión</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout info" style="margin-top:20px">
+          <p><strong>El dataset no está incluido.</strong> Son ~3.040 imágenes de entrenamiento y
+          95 de test; pesa ~440 MB y las imágenes son de terceros. El proyecto comparte el
+          código y el checkpoint bajo solicitud, no las fotos. Para entrenar necesitas tus propias carpetas con
+          las seis clases.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- DEPLOY -->
+    <section class="section section-alt" id="deploy">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">06 · Deploy</div>
+          <h2>PyTorch entrena; ONNX ejecuta.</h2>
+          <p class="lead-sm">
+            El checkpoint se exporta a ONNX y se ejecuta con ONNX Runtime en CPU. En una Raspberry
+            Pi 4 no necesitas instalar PyTorch: solo <code class="inline">onnxruntime</code>,
+            NumPy y Pillow.
+          </p>
+        </div>
+
+        <div class="flow" aria-label="Flujo de despliegue">
+          <div class="flow-step"><strong>best.pt</strong><span>checkpoint PyTorch</span></div>
+          <div class="flow-step"><strong>export_onnx.py</strong><span>exporta + metadata</span></div>
+          <div class="flow-step highlight"><strong>landmarks.onnx</strong><span>grafo portátil</span></div>
+          <div class="flow-step"><strong>ONNX Runtime</strong><span>CPU / Raspberry Pi</span></div>
+          <div class="flow-step"><strong>logits → softmax</strong><span>etiqueta + confianza</span></div>
+        </div>
+
+        <div class="grid-2" style="margin-top:26px">
+          <div class="card">
+            <h3>1. Exportar en el PC</h3>
+            <div class="code">
+              <pre><code>pip install -r requirements-deploy.txt
+
+python -m landmark_classifier.export_onnx \
+  --checkpoint best.pt \
+  --output exports/landmarks.onnx</code></pre>
+            </div>
+            <p class="small" style="margin-top:10px">
+              El exportador comprueba la salida contra PyTorch si
+              <code class="inline">onnxruntime</code> está instalado y escribe las clases, el
+              tamaño de entrada y la normalización dentro del propio ONNX.
+            </p>
+
+            <h3 style="margin-top:22px">2. Ejecutar en PC o Raspberry Pi</h3>
+            <div class="code">
+              <pre><code># en la Raspberry Pi (64-bit recomendado)
+sudo apt update
+sudo apt install -y python3-pip
+pip3 install onnxruntime numpy pillow
+
+python3 onnx_inference.py \
+  --model landmarks.onnx \
+  --image foto.jpg \
+  --topk 3</code></pre>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Contrato del ONNX</h3>
+            <div class="table-wrap" style="box-shadow:none">
+              <table>
+                <tbody>
+                  <tr><td><strong>Entrada</strong></td><td><code class="inline">input</code>, float32, <code class="inline">[batch, 3, 224, 224]</code></td></tr>
+                  <tr><td><strong>Salida</strong></td><td><code class="inline">logits</code>, float32, <code class="inline">[batch, 6]</code></td></tr>
+                  <tr><td><strong>Preprocesado</strong></td><td>RGB, resize 256, center crop 224, <code class="inline">(x - mean) / std</code></td></tr>
+                  <tr><td><strong>Metadatos</strong></td><td>clases, tamaño, media y desviación dentro del ONNX</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="small" style="margin-top:10px">
+              La salida son <strong>logits</strong>, no probabilidades. Aplica softmax antes de
+              interpretar la confianza.
+            </p>
+
+            <div class="code" style="margin-top:16px">
+              <pre><code>import onnxruntime as ort
+
+session = ort.InferenceSession(
+    "landmarks.onnx",
+    providers=["CPUExecutionProvider"],
+)
+input_name = session.get_inputs()[0].name
+logits = session.run(None, {input_name: tensor})[0]</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3" style="margin-top:22px">
+          <div class="card">
+            <h3><span class="icon-badge" aria-hidden="true">↯</span> Latencia</h3>
+            <p>No se prometen milisegundos: depende de la Pi, la refrigeración, la versión de
+            ONNX Runtime y el hilo. Mide en tu dispositivo antes de decidir.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge blue" aria-hidden="true">◐</span> Cuantización</h3>
+            <p>La cuantización dinámica INT8 puede reducir tamaño y latencia, pero cambia la
+            accuracy. Si la usas, reevalúa sobre el test.</p>
+          </div>
+          <div class="card">
+            <h3><span class="icon-badge amber" aria-hidden="true">⌁</span> Dónde encaja</h3>
+            <p>Es la capa de percepción: recibe una imagen y devuelve clase + confianza. El
+            control del robot, la navegación o la simulación no forman parte de este proyecto.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ESTRUCTURA -->
+    <section class="section" id="estructura">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">07 · Estructura</div>
+          <h2>Un módulo por responsabilidad.</h2>
+          <p class="lead-sm">
+            El código está separado para que puedas leerlo, cambiarlo y probarlo sin arrastrar
+            toda la pipeline. Estas son las piezas principales.
+          </p>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <p class="small" style="margin:0 0 10px">
+              Árbol del proyecto de código, que se comparte bajo solicitud. Este sitio público
+              contiene solo la web y la documentación.
+            </p>
+            <pre class="tree">CNN_for_VisualRecognition/
+├── landmark_classifier/
+│   ├── data.py          # transforms, split, dataloaders
+│   ├── model.py         # backbone + cabeza, freeze/unfreeze
+│   ├── engine.py        # train loop, validación, métricas
+│   ├── train.py         # CLI de entrenamiento en 2 fases
+│   ├── evaluate.py      # evalúa un checkpoint en data/test
+│   ├── predict.py       # inferencia 1 imagen / carpeta
+│   ├── export_onnx.py   # export ONNX + metadata
+│   ├── checkpoint.py    # guardar / cargar / reconstruir
+│   ├── reporting.py     # JSON, CSV, classification report
+│   ├── plots.py         # matrices, curvas, grid
+│   └── utils.py         # seed, device, JSON
+├── deploy/
+│   └── onnx_inference.py  # inferencia sin PyTorch
+├── docs/                  # pipeline, resultados, deploy
+├── results/               # matrices registradas
+├── scripts/
+│   └── plot_results.py   # regenera las figuras
+├── data/README.md         # layout; dataset no incluido
+├── best.pt                # checkpoint MobileNetV3 (17 MB)
+├── requirements.txt
+├── requirements-deploy.txt
+├── LICENSE
+└── CONTEXT.md</pre>
+          </div>
+
+          <div class="stack-16">
+            <div class="card">
+              <h3><code class="inline">model.py</code></h3>
+              <p>Crea el backbone con <code class="inline">num_classes=0</code>, sondea la
+              dimensión real de features y construye la cabeza lineal. Incluye freeze,
+              unfreeze de los últimos bloques y BatchNorm congelado.</p>
+            </div>
+            <div class="card">
+              <h3><code class="inline">data.py</code></h3>
+              <p>Transforms de train/eval, split estratificado 75/25 y DataLoaders. La
+              normalización se pasa desde la configuración del backbone.</p>
+            </div>
+            <div class="card">
+              <h3><code class="inline">engine.py</code></h3>
+              <p>Un epoch de train/validación, métricas ponderadas por tamaño de batch,
+              evaluación con accuracy, macro F1 y matriz de confusión.</p>
+            </div>
+            <div class="card">
+              <h3><code class="inline">predict.py</code> y <code class="inline">deploy/</code></h3>
+              <p>Predicción con PyTorch en el PC y predicción sin PyTorch con ONNX Runtime en
+              CPU o Raspberry Pi.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIMITACIONES -->
+    <section class="section section-alt" id="limitaciones">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">08 · Limitaciones</div>
+          <h2>Lo que este modelo no hace (y conviene saber).</h2>
+          <p class="lead-sm">
+            Un buen portfolio también explica los límites. Estos son los que afectan a las
+            decisiones de uso y a la interpretación de las métricas.
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h3>Test pequeño</h3>
+            <p>95 imágenes: un error = 1,05 puntos. El 95,8% es una estimación con incertidumbre,
+            no una garantía de producción.</p>
+          </div>
+          <div class="card">
+            <h3>Datos raspados</h3>
+            <p>Las imágenes vienen de la web: puede haber ruido de etiqueta, duplicados y
+            dificultad desigual. No es un benchmark curado.</p>
+          </div>
+          <div class="card">
+            <h3>Domain shift</h3>
+            <p>El test es estilo Instagram: personas, texto, filtros, recortes. Esa es la gracia,
+            pero también la razón de que el test sea más difícil que el train.</p>
+          </div>
+          <div class="card">
+            <h3>Mundo cerrado</h3>
+            <p>Siempre devuelve una de las seis clases. No hay clase “desconocido” ni detección
+            de out-of-distribution.</p>
+          </div>
+          <div class="card">
+            <h3>Sin calibrar</h3>
+            <p>La confianza de softmax no está calibrada. Un 99% no es una probabilidad real de
+            acierto del 99%.</p>
+          </div>
+          <div class="card">
+            <h3>Solo percepción</h3>
+            <p>No incluye control de robot, navegación ni simulación. Es el módulo de visión que
+            otro sistema podría llamar.</p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:22px">
+          <h3>Si tuviera que seguir trabajando</h3>
+          <ul class="plain-list">
+            <li><strong>Más Tokyo Tower:</strong> noches, recortes, luz roja y negativos duros de Eiffel Tower.</li>
+            <li><strong>Test más grande y limpio:</strong> deduplicar capturas y añadir un split de evaluación más robusto.</li>
+            <li><strong>Calibración y OOD:</strong> que el modelo pueda decir “no lo sé” fuera de las seis clases.</li>
+            <li><strong>Interpretabilidad:</strong> Grad-CAM para ver si mira la torre o el fondo.</li>
+            <li><strong>Cross-validation:</strong> 3–5 folds para una estimación más estable.</li>
+            <li><strong>Deploy medido:</strong> latencia y memoria en la Pi, y comparación FP32 vs INT8.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTACTO -->
+    <section class="section" id="contacto">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">09 · Contacto</div>
+          <h2>¿Quieres usar el proyecto o necesitas ayuda?</h2>
+          <p class="lead-sm">
+            El código y el checkpoint se comparten bajo solicitud. Si tienes dudas sobre el
+            pipeline, el deploy o quieres comentar una colaboración, escríbeme por WhatsApp.
+          </p>
+        </div>
+
+        <div class="contact-grid">
+          <div class="contact-card">
+            <h3>Hablemos del proyecto</h3>
+            <p>
+              Puedo explicarte cómo está montado el transfer learning, cómo se preparan los datos,
+              cómo se evalúa el modelo o cómo se exporta a ONNX para CPU y Raspberry Pi.
+            </p>
+            <p style="margin-top:10px">
+              Si necesitas AYUDA del código no dudes en contactarme.
+            </p>
+            <div class="contact-actions">
+              <a class="wa-inline" href="https://wa.me/qr/PXTMUZ4FCBSRP1" target="_blank" rel="noopener">
+                Contactar por WhatsApp <span aria-hidden="true">↗</span>
+              </a>
+              <a class="btn btn-ghost js-wa-open" href="https://wa.me/qr/PXTMUZ4FCBSRP1" target="_blank" rel="noopener">
+                ¿Necesitas ayuda con el código?
+              </a>
+            </div>
+            <p class="small" style="margin-top:14px">
+              También puedes consultar la
+              <a href="docs/PIPELINE.md">documentación del pipeline</a>,
+              los <a href="docs/RESULTS.md">resultados</a> o el
+              <a href="docs/DEPLOYMENT.md">flujo de deploy</a>.
+            </p>
+          </div>
+
+          <div class="qr-card">
+            <img src="assets/whatsapp-card.png" alt="QR de contacto de WhatsApp">
+            <p>Escanea el QR con la cámara de WhatsApp o pulsa el botón.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LICENCIA -->
+    <section class="section" id="licencia">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="kicker">10 · Licencia y créditos</div>
+          <h2>Un proyecto tutorizado, no un trabajo huérfano.</h2>
+          <p class="lead-sm">
+            Este proyecto se desarrolló como la práctica P3 de la asignatura Computer Vision de
+            la EINA, Universidad de Zaragoza. La supervisión, corrección y guía de los profesores
+            hicieron posible el resultado.
+          </p>
+        </div>
+
+        <div class="license-grid">
+          <div class="stack-16">
+            <blockquote class="quote">
+              <p><strong>Crédito académico.</strong> Proyecto desarrollado en la asignatura
+              Computer Vision (P3) de la Escuela de Ingeniería y Arquitectura (EINA), Universidad
+              de Zaragoza, bajo la supervisión y corrección de sus profesores.</p>
+              <p>Su enseñanza, feedback y correcciones son parte fundamental de este trabajo.
+              El crédito académico de esa dirección pertenece al equipo docente de Computer Vision
+              de la EINA.</p>
+            </blockquote>
+
+            <div class="card">
+              <h3>Uso y reutilización</h3>
+              <ul class="check-list">
+                <li><strong>Puedes</strong> leer, estudiar, ejecutar y aprender del código para uso personal, docencia e investigación académica no comercial.</li>
+                <li><strong>Debes</strong> acreditar el proyecto y a la asignatura/equipo docente de Computer Vision de la EINA si lo usas.</li>
+                <li><strong>Necesitas permiso</strong> del autor y del equipo docente para reutilizarlo en otro proyecto, redistribuirlo, usarlo comercialmente o publicar una obra derivada.</li>
+                <li><strong>Las imágenes no están cubiertas</strong> por la licencia y no se distribuyen con el proyecto.</li>
+              </ul>
+              <p class="small" style="margin-top:12px">
+                Licencia completa:
+                <a href="LICENSE">Academic Portfolio License</a>.
+                Para permisos, usa la sección de
+                <a href="#contacto">contacto</a>.
+              </p>
+            </div>
+          </div>
+
+          <div class="stack-16">
+            <div class="callout warn">
+              <p><strong>Nota académica.</strong> Este proyecto es material de aprendizaje y
+              portfolio. Entregarlo como trabajo propio en otra asignatura, o revenderlo como si
+              fuera un producto independiente, no está permitido por la licencia ni por la
+              normativa académica. Si eres compañero/a y quieres aprender del proyecto, puedes
+              estudiarlo y ejecutarlo; para usarlo en una entrega, habla con el equipo docente.</p>
+            </div>
+
+            <div class="card">
+              <h3>Cómo citarlo</h3>
+              <div class="code">
+                <pre><code>@misc{sejotta2026landmarks,
+  author = {sejotta},
+  title  = {CNN for Visual Recognition:
+            Landmark Classification with Transfer Learning},
+  year   = {2026},
+  url    = {https://sejotta.github.io/CNN_for_VisualRecognition-web/}
+}</code></pre>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-brand">CNN for <span>Visual Recognition</span></div>
+          <p class="small" style="color:#7f93ad; margin:8px 0 0; max-width:520px">
+            Clasificación de seis monumentos con transfer learning en PyTorch + timm.
+            Checkpoint de 17 MB bajo solicitud, evaluación reproducible y export ONNX para CPU / Raspberry Pi.
+          </p>
+        </div>
+        <div class="footer-links" aria-label="Enlaces del proyecto">
+          <a href="docs/PIPELINE.md">Pipeline</a>
+          <a href="docs/RESULTS.md">Resultados</a>
+          <a href="docs/DEPLOYMENT.md">Deploy</a>
+          <a href="LICENSE">Licencia</a>
+          <a href="#contacto">Contacto</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>P3 · Computer Vision · EINA · Universidad de Zaragoza</span>
+        <span>© 2026 @sejotta · Academic Portfolio License</span>
+      </div>
+    </div>
+  </footer>
+
+  <button id="toTop" type="button" aria-label="Volver arriba" title="Volver arriba">↑</button>
+
+  <a class="wa-float" href="https://wa.me/qr/PXTMUZ4FCBSRP1" target="_blank" rel="noopener" aria-label="Contactar por WhatsApp" title="Contactar por WhatsApp">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8 8 0 1 1 12 20Zm4.4-5.8c-.2-.1-1.4-.7-1.6-.8-.2-.1-.4-.1-.5.1-.2.2-.6.8-.7.9-.1.2-.3.2-.5.1-.2-.1-.9-.3-1.7-1.1-.6-.6-1-1.2-1.1-1.4-.1-.2 0-.4.1-.5l.4-.5c.1-.2.1-.3 0-.5-.1-.2-.5-1.3-.7-1.8-.2-.5-.4-.4-.5-.4h-.5c-.2 0-.5.1-.7.3-.2.2-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.8 4.4 3.9.6.3 1.1.4 1.5.5.6.2 1.2.2 1.6.1.5-.1 1.4-.6 1.6-1.1.2-.5.2-1 .1-1.1-.1-.1-.2-.2-.4-.3Z"/>
+    </svg>
+  </a>
+
+  <div class="wa-modal" id="waModal" role="dialog" aria-modal="true" aria-labelledby="waTitle" aria-hidden="true">
+    <div class="wa-dialog" role="document">
+      <button class="wa-close" id="waClose" type="button" aria-label="Cerrar">×</button>
+      <h3 id="waTitle">¿Necesitas ayuda con el código?</h3>
+      <p>Si necesitas AYUDA del código no dudes en contactarme.</p>
+      <img class="wa-qr" src="assets/whatsapp-card.png" alt="QR de contacto de WhatsApp">
+      <p class="wa-note">Escanea el QR con la cámara de WhatsApp o pulsa el botón</p>
+      <a class="btn btn-primary" href="https://wa.me/qr/PXTMUZ4FCBSRP1" target="_blank" rel="noopener">Abrir WhatsApp</a>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      // Copiar bloques de código.
+      document.querySelectorAll(".code").forEach(function (block) {
+        var pre = block.querySelector("pre");
+        if (!pre) return;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy";
+        button.textContent = "Copiar";
+        button.setAttribute("aria-label", "Copiar bloque de código");
+        block.appendChild(button);
+        button.addEventListener("click", function () {
+          var text = pre.innerText;
+          function done() {
+            button.textContent = "Copiado";
+            button.classList.add("copied");
+            window.setTimeout(function () {
+              button.textContent = "Copiar";
+              button.classList.remove("copied");
+            }, 1600);
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(function () {
+              button.textContent = "No disponible";
+            });
+          } else {
+            var area = document.createElement("textarea");
+            area.value = text;
+            area.style.position = "fixed";
+            area.style.opacity = "0";
+            document.body.appendChild(area);
+            area.select();
+            try { document.execCommand("copy"); done(); }
+            catch (error) { button.textContent = "No disponible"; }
+            document.body.removeChild(area);
+          }
+        });
+      });
+
+      // Imprimir / guardar PDF.
+      var printBtn = document.getElementById("printBtn");
+      if (printBtn) {
+        printBtn.addEventListener("click", function () { window.print(); });
+      }
+
+      // Volver arriba.
+      var toTop = document.getElementById("toTop");
+      function updateTopButton() {
+        if (!toTop) return;
+        toTop.classList.toggle("show", window.scrollY > 640);
+      }
+      window.addEventListener("scroll", updateTopButton, { passive: true });
+      updateTopButton();
+      if (toTop) {
+        toTop.addEventListener("click", function () {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      }
+
+      // Resaltar la sección activa en la navegación.
+      var links = Array.prototype.slice.call(document.querySelectorAll('.nav a[href^="#"]'));
+      var sections = links
+        .map(function (link) {
+          var id = link.getAttribute("href");
+          return id && id.length > 1 ? document.querySelector(id) : null;
+        })
+        .filter(Boolean);
+
+      if ("IntersectionObserver" in window && sections.length) {
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            links.forEach(function (link) {
+              link.classList.toggle(
+                "active",
+                link.getAttribute("href") === "#" + entry.target.id
+              );
+            });
+          });
+        }, { rootMargin: "-35% 0px -55% 0px", threshold: 0.01 });
+        sections.forEach(function (section) { observer.observe(section); });
+      }
+
+      // Modal de contacto WhatsApp.
+      var waModal = document.getElementById("waModal");
+      var waClose = document.getElementById("waClose");
+      var waOpeners = document.querySelectorAll(".js-wa-open");
+      var waLastFocus = null;
+
+      function openWa(event) {
+        if (event) event.preventDefault();
+        if (!waModal) return;
+        waLastFocus = document.activeElement;
+        waModal.classList.add("is-open");
+        waModal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("wa-open");
+        if (waClose) waClose.focus();
+      }
+
+      function closeWa() {
+        if (!waModal) return;
+        waModal.classList.remove("is-open");
+        waModal.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("wa-open");
+        if (waLastFocus && typeof waLastFocus.focus === "function") {
+          waLastFocus.focus();
+        }
+      }
+
+      waOpeners.forEach(function (opener) {
+        opener.addEventListener("click", openWa);
+      });
+      if (waClose) {
+        waClose.addEventListener("click", closeWa);
+      }
+      if (waModal) {
+        waModal.addEventListener("click", function (event) {
+          if (event.target === waModal) closeWa();
+        });
+      }
+      document.addEventListener("keydown", function (event) {
+        if (!waModal || !waModal.classList.contains("is-open")) return;
+        if (event.key === "Escape") {
+          closeWa();
+          return;
+        }
+        if (event.key !== "Tab") return;
+        var focusable = waModal.querySelectorAll('a[href], button:not([disabled])');
+        if (!focusable.length) return;
+        var first = focusable[0];
+        var last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
